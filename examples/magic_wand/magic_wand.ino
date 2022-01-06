@@ -18,16 +18,24 @@ limitations under the License.
 
 #include "magic_wand_model_data.h"
 #include "rasterize_stroke.h"
-#include "tensorflow/lite/micro/micro_error_reporter.h"
+#include "smith_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
+#define LINEBREAK "\r\n"
 #define BLE_SENSE_UUID(val) ("4798e0f2-" val "-4d68-af64-8a8f5258404e")
 
-#undef MAGIC_WAND_DEBUG
+//#define MAGIC_WAND_DEBUG 1
 
+//execute tflite inference
+//#define ENABLE_INFERENCE 1
+
+// print stroke string data to serial
+#define PRINT_STROKES 1
+
+#define MOVING_THRESHOLD 20.0f
 namespace {
 
 const int VERSION = 0x00000000;
@@ -91,19 +99,22 @@ enum {
   eDone = 2,
 };
 
+tflite::ErrorReporter* error_reporter = nullptr;
+
+#ifdef ENABLE_INFERENCE
 // Create an area of memory to use for input, output, and intermediate arrays.
 // The size of this will depend on the model you're using, and may need to be
 // determined by experimentation.
 constexpr int kTensorArenaSize = 30 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
 
-tflite::ErrorReporter* error_reporter = nullptr;
 const tflite::Model* model = nullptr;
 tflite::MicroInterpreter* interpreter = nullptr;
 
 constexpr int label_count = 10;
 const char* labels[label_count] = {"0", "1", "2", "3", "4",
                                    "5", "6", "7", "8", "9"};
+#endif
 
 void SetupIMU() {
   // Make sure we are pulling measurements into a FIFO.
@@ -120,10 +131,16 @@ void SetupIMU() {
   TF_LITE_REPORT_ERROR(error_reporter, "Acceleration sample rate %d.%d Hz",
                        static_cast<int32_t>(rate_int),
                        static_cast<int32_t>(rate_frac * 100));
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif                       
   rate_frac = modf(gyroscope_sample_rate, &rate_int);
   TF_LITE_REPORT_ERROR(error_reporter, "Gyroscope sample rate %d.%d Hz",
                        static_cast<int32_t>(rate_int),
                        static_cast<int32_t>(rate_frac * 100));
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
 #endif  // MAGIC_WAND_DEBUG
 }
 
@@ -141,6 +158,9 @@ void ReadAccelerometerAndGyroscope(int* new_accelerometer_samples,
     if (!IMU.readGyroscope(current_gyroscope_data[0], current_gyroscope_data[1],
                            current_gyroscope_data[2])) {
       TF_LITE_REPORT_ERROR(error_reporter, "Failed to read gyroscope data");
+#ifdef SMITH_ERROR_REPORTER_H_
+      TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
       break;
     }
     *new_gyroscope_samples += 1;
@@ -154,6 +174,9 @@ void ReadAccelerometerAndGyroscope(int* new_accelerometer_samples,
                               current_acceleration_data[1],
                               current_acceleration_data[2])) {
       TF_LITE_REPORT_ERROR(error_reporter, "Failed to read acceleration data");
+#ifdef SMITH_ERROR_REPORTER_H_
+      TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
       break;
     }
     *new_accelerometer_samples += 1;
@@ -315,7 +338,7 @@ void UpdateOrientation(int new_samples, float* gravity, float* drift) {
 }
 
 bool IsMoving(int samples_before) {
-  constexpr float moving_threshold = 9.0f;
+  constexpr float moving_threshold = MOVING_THRESHOLD;
 
   if ((gyroscope_data_index - samples_before) < moving_sample_count) {
     return false;
@@ -367,6 +390,9 @@ void UpdateStroke(int new_samples, bool* done_just_triggered) {
           *stroke_state = eWaiting;
 #ifdef MAGIC_WAND_DEBUG
           TF_LITE_REPORT_ERROR(error_reporter, "stroke length too small");
+#ifdef SMITH_ERROR_REPORTER_H_
+          TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
 #endif  // MAGIC_WAND_DEBUG
         }
       }
@@ -497,6 +523,9 @@ void UpdateStroke(int new_samples, bool* done_just_triggered) {
         stroke_length = 0;
 #ifdef MAGIC_WAND_DEBUG
         TF_LITE_REPORT_ERROR(error_reporter, "stroke too small");
+#ifdef SMITH_ERROR_REPORTER_H_
+        TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
 #endif  // MAGIC_WAND_DEBUG
       }
     }
@@ -510,13 +539,18 @@ void setup() {
 
   // Set up logging. Google style is to avoid globals or statics because of
   // lifetime uncertainty, but since this has a trivial destructor it's okay.
-  static tflite::MicroErrorReporter micro_error_reporter;  // NOLINT
+  static tflite::SmithErrorReporter micro_error_reporter;  // NOLINT
   error_reporter = &micro_error_reporter;
 
   TF_LITE_REPORT_ERROR(error_reporter, "Started");
-
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
   if (!IMU.begin()) {
     TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialized IMU!");
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
     while (true) {
       // NORETURN
     }
@@ -526,6 +560,9 @@ void setup() {
 
   if (!BLE.begin()) {
     TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialized BLE!");
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif      
     while (true) {
       // NORETURN
     }
@@ -534,7 +571,9 @@ void setup() {
   String address = BLE.address();
 
   TF_LITE_REPORT_ERROR(error_reporter, "address = %s", address.c_str());
-
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
   address.toUpperCase();
 
   name = "BLESense-";
@@ -544,7 +583,9 @@ void setup() {
   name += address[address.length() - 1];
 
   TF_LITE_REPORT_ERROR(error_reporter, "name = %s", name.c_str());
-
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
   BLE.setLocalName(name.c_str());
   BLE.setDeviceName(name.c_str());
   BLE.setAdvertisedService(service);
@@ -554,7 +595,15 @@ void setup() {
   BLE.addService(service);
 
   BLE.advertise();
+  
+#ifdef ENABLE_INFERENCE
+  initInference();
+#endif
+}
 
+#ifdef ENABLE_INFERENCE
+void initInference(){
+  
   // Map the model into a usable data structure. This doesn't involve any
   // copying or parsing, it's a very lightweight operation.
   model = tflite::GetModel(g_magic_wand_model_data);
@@ -563,6 +612,9 @@ void setup() {
                          "Model provided is schema version %d not equal "
                          "to supported version %d.",
                          model->version(), TFLITE_SCHEMA_VERSION);
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
     return;
   }
 
@@ -595,6 +647,9 @@ void setup() {
       (model_input->params.scale != 1.0)) {
     TF_LITE_REPORT_ERROR(error_reporter,
                          "Bad input tensor parameters in model");
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
     return;
   }
 
@@ -604,9 +659,13 @@ void setup() {
       (model_output->type != kTfLiteInt8)) {
     TF_LITE_REPORT_ERROR(error_reporter,
                          "Bad output tensor parameters in model");
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif                         
     return;
   }
 }
+#endif
 
 void loop() {
   BLEDevice central = BLE.central();
@@ -617,6 +676,9 @@ void loop() {
     // print the central's BT address:
     TF_LITE_REPORT_ERROR(error_reporter, "Connected to central: %s",
                          central.address().c_str());
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
   }
   was_connected_last = central;
 
@@ -639,70 +701,111 @@ void loop() {
     UpdateStroke(gyroscope_samples_read, &done_just_triggered);
     if (central && central.connected()) {
       strokeCharacteristic.writeValue(stroke_struct_buffer,
-                                      stroke_struct_byte_count);
+                                      stroke_struct_byte_count);      
     }
+#ifdef PRINT_STROKES
+    if (done_just_triggered){
+      dumpSerial();
+    }
+#endif
   }
 
   if (accelerometer_samples_read > 0) {
     EstimateGravityDirection(current_gravity);
     UpdateVelocity(accelerometer_samples_read, current_gravity);
   }
-
+#ifdef ENABLE_INFERENCE
   if (done_just_triggered) {
-    RasterizeStroke(stroke_points, *stroke_transmit_length, 0.6f, 0.6f,
-                    raster_width, raster_height, raster_buffer);
-    for (int y = 0; y < raster_height; ++y) {
-      char line[raster_width + 1];
-      for (int x = 0; x < raster_width; ++x) {
-        const int8_t* pixel =
-            &raster_buffer[(y * raster_width * raster_channels) +
-                           (x * raster_channels)];
-        const int8_t red = pixel[0];
-        const int8_t green = pixel[1];
-        const int8_t blue = pixel[2];
-        char output;
-        if ((red > -128) || (green > -128) || (blue > -128)) {
-          output = '#';
-        } else {
-          output = '.';
-        }
-        line[x] = output;
+    inference();
+  }
+#endif
+}
+#ifdef ENABLE_INFERENCE
+void inference(){
+
+  RasterizeStroke(stroke_points, *stroke_transmit_length, 0.6f, 0.6f,
+                  raster_width, raster_height, raster_buffer);
+  for (int y = 0; y < raster_height; ++y) {
+    char line[raster_width + 1];
+    for (int x = 0; x < raster_width; ++x) {
+      const int8_t* pixel =
+          &raster_buffer[(y * raster_width * raster_channels) +
+                         (x * raster_channels)];
+      const int8_t red = pixel[0];
+      const int8_t green = pixel[1];
+      const int8_t blue = pixel[2];
+      char output;
+      if ((red > -128) || (green > -128) || (blue > -128)) {
+        output = '#';
+      } else {
+        output = '.';
       }
-      line[raster_width] = 0;
-      TF_LITE_REPORT_ERROR(error_reporter, line);
+      line[x] = output;
     }
+    line[raster_width] = 0;
+    TF_LITE_REPORT_ERROR(error_reporter, line);
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+  }
 #ifdef MAGIC_WAND_DEBUG
-    TF_LITE_REPORT_ERROR(error_reporter, "tx len: %d", *stroke_transmit_length);
+  TF_LITE_REPORT_ERROR(error_reporter, "tx len: %d", *stroke_transmit_length);
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
 #endif  // MAGIC_WAND_DEBUG
 
-    TfLiteTensor* model_input = interpreter->input(0);
-    for (int i = 0; i < raster_byte_count; ++i) {
-      model_input->data.int8[i] = raster_buffer[i];
-    }
-
-    TfLiteStatus invoke_status = interpreter->Invoke();
-    if (invoke_status != kTfLiteOk) {
-      TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed");
-      return;
-    }
-
-    TfLiteTensor* output = interpreter->output(0);
-
-    int8_t max_score;
-    int max_index;
-    for (int i = 0; i < label_count; ++i) {
-      const int8_t score = output->data.int8[i];
-      if ((i == 0) || (score > max_score)) {
-        max_score = score;
-        max_index = i;
-      }
-    }
-    float max_score_f =
-        (max_score - output->params.zero_point) * output->params.scale;
-    float max_score_int;
-    float max_score_frac = modf(max_score_f * 100, &max_score_int);
-    TF_LITE_REPORT_ERROR(error_reporter, "Found %s (%d.%d%%)",
-                         labels[max_index], static_cast<int>(max_score_int),
-                         static_cast<int>(max_score_frac * 100));
+  TfLiteTensor* model_input = interpreter->input(0);
+  for (int i = 0; i < raster_byte_count; ++i) {
+    model_input->data.int8[i] = raster_buffer[i];
   }
+
+  TfLiteStatus invoke_status = interpreter->Invoke();
+  if (invoke_status != kTfLiteOk) {
+    TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed");
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+    return;
+  }
+
+  TfLiteTensor* output = interpreter->output(0);
+
+  int8_t max_score;
+  int max_index;
+  for (int i = 0; i < label_count; ++i) {
+    const int8_t score = output->data.int8[i];
+    if ((i == 0) || (score > max_score)) {
+      max_score = score;
+      max_index = i;
+    }
+  }
+  float max_score_f =
+      (max_score - output->params.zero_point) * output->params.scale;
+  float max_score_int;
+  float max_score_frac = modf(max_score_f * 100, &max_score_int);
+  TF_LITE_REPORT_ERROR(error_reporter, "Found %s (%d.%d%%)",
+                       labels[max_index], static_cast<int>(max_score_int),
+                       static_cast<int>(max_score_frac * 100));
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+
 }
+#endif
+
+#ifdef PRINT_STROKES
+void dumpSerial(){
+  TF_LITE_REPORT_ERROR(error_reporter, "AAAAA:");
+  TF_LITE_REPORT_ERROR(error_reporter, " %d", *stroke_state);
+  TF_LITE_REPORT_ERROR(error_reporter, " %d", *stroke_transmit_length);
+  for (int j = 0; j < *stroke_transmit_length; ++j) {
+    int stroke_index = j * 2;
+    int8_t* stroke_entry = &stroke_points[stroke_index];
+    TF_LITE_REPORT_ERROR(error_reporter, " %d,%d", stroke_entry[0],stroke_entry[1]);
+  }
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+}
+#endif
