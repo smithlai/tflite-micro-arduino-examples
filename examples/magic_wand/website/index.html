@@ -76,7 +76,10 @@
     margin-right: 158px;
     text-align: right;
   }
-    
+  .default-label {
+    float: left;
+	margin-top: 14px;
+  }
   .gesture_store {
     width: 400px;
     height: 500px;
@@ -107,6 +110,7 @@
     <div class="status widget">
       <a class="button" id="downloadButton">Download Data</a>
       <button class="button" id="bigButton">Bluetooth</button>
+	  <input class="default-label" id="default_label"/>
       <div class="bluetooth-label" id="bluetooth">Click button to connect to the board</div>
       <div class="count-label" id="count"></div>
     </div>
@@ -277,7 +281,8 @@ function storeStroke(strokePoints) {
   storeDiv.prepend(html.body.firstChild);
   
   var strokeLabel = document.querySelector('#store_' + storeIndex +' > .label');
-  strokeLabel.innerText = "?";
+  var default_label = document.querySelector('#default_label').value;
+  strokeLabel.innerText = default_label?default_label:"?";
   strokeLabel.onfocus = onLabelFocus;
   strokeLabel.onblur = onLabelBlur;
   strokeLabel.onkeydown = onLabelKeydown;
@@ -293,7 +298,7 @@ function storeStroke(strokePoints) {
   storedStrokes.push({
     index: storeIndex,
     strokePoints: strokePoints,
-    label: '',
+    label: default_label?default_label:'',
   });
   onStoreChange();
   
@@ -345,6 +350,7 @@ function onStoreChange() {
   
   var count = document.querySelector('#count');
   count.innerText = storedStrokes.length;
+
 }
   
 function initStrokeGraph() {
@@ -393,8 +399,9 @@ function updateStrokeGraph() {
   var strokeState = strokeData.state.latest();
   var strokePoints = strokeData.strokePoints.latest();
   strokePoints = strokePoints.slice(0, strokeDataLength);
-  
+
   if ((strokeState == 2) && (previousStrokeState != 2)) {
+	console.log(strokeState, strokeDataLength, strokePoints)
     storeStroke(strokePoints); 
   }
   previousStrokeState = strokeState;
