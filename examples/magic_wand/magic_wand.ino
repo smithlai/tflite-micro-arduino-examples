@@ -12,6 +12,7 @@ limitations under the License.
 
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
+#include <Arduino_APDS9960.h>
 #include <TensorFlowLite.h>
 
 #include <cmath>
@@ -25,12 +26,16 @@ limitations under the License.
 #include "tensorflow/lite/schema/schema_generated.h"
 
 #define LINEBREAK "\r\n"
+#undef MAGIC_WAND_BLE
+
 #define BLE_SENSE_UUID(val) ("4798e0f2-" val "-4d68-af64-8a8f5258404e")
 
 //#define MAGIC_WAND_DEBUG 1
 
 //execute tflite inference
 //#define ENABLE_INFERENCE 1
+
+
 
 // print stroke string data to serial
 #define PRINT_STROKES 1
@@ -556,8 +561,24 @@ void setup() {
     }
   }
 
-  SetupIMU();
+//APDS
+  if (!APDS.begin()) {
+    TF_LITE_REPORT_ERROR(error_reporter, "Error initializing APDS9960 sensor!");
+#ifdef SMITH_ERROR_REPORTER_H_
+    TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif 
+    while (true) {
+      // NORETURN
+    }
+  }
 
+  TF_LITE_REPORT_ERROR(error_reporter, "Detecting gestures ...");
+#ifdef SMITH_ERROR_REPORTER_H_
+  TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif 
+
+  SetupIMU();
+#ifdef MAGIC_WAND_BLE
   if (!BLE.begin()) {
     TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialized BLE!");
 #ifdef SMITH_ERROR_REPORTER_H_
@@ -595,7 +616,8 @@ void setup() {
   BLE.addService(service);
 
   BLE.advertise();
-  
+#endif
+
 #ifdef ENABLE_INFERENCE
   initInference();
 #endif
@@ -668,6 +690,7 @@ void initInference(){
 #endif
 
 void loop() {
+#ifdef MAGIC_WAND_BLE
   BLEDevice central = BLE.central();
 
   // if a central is connected to the peripheral:
@@ -681,7 +704,39 @@ void loop() {
 #endif
   }
   was_connected_last = central;
+#endif
 
+//APDS, gesture sensor
+  if (APDS.gestureAvailable()) {
+    int gesture = APDS.readGesture();
+    switch (gesture) {
+      case GESTURE_UP:
+        TF_LITE_REPORT_ERROR(error_reporter, "GGGGG: UP");
+#ifdef SMITH_ERROR_REPORTER_H_
+        TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif 
+        break;
+      case GESTURE_DOWN:
+        TF_LITE_REPORT_ERROR(error_reporter, "GGGGG: DOWN");
+#ifdef SMITH_ERROR_REPORTER_H_
+        TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+        break;
+      case GESTURE_LEFT:
+        TF_LITE_REPORT_ERROR(error_reporter, "GGGGG: LEFT");
+#ifdef SMITH_ERROR_REPORTER_H_
+        TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+        break;
+      case GESTURE_RIGHT:
+        TF_LITE_REPORT_ERROR(error_reporter, "GGGGG: RIGHT");
+#ifdef SMITH_ERROR_REPORTER_H_
+        TF_LITE_REPORT_ERROR(error_reporter, LINEBREAK);
+#endif
+        break;
+    }
+  }
+  
   const bool data_available =
       IMU.accelerationAvailable() || IMU.gyroscopeAvailable();
   if (!data_available) {
@@ -699,10 +754,12 @@ void loop() {
     UpdateOrientation(gyroscope_samples_read, current_gravity,
                       current_gyroscope_drift);
     UpdateStroke(gyroscope_samples_read, &done_just_triggered);
+#ifdef MAGIC_WAND_BLE
     if (central && central.connected()) {
       strokeCharacteristic.writeValue(stroke_struct_buffer,
                                       stroke_struct_byte_count);      
     }
+#endif
 #ifdef PRINT_STROKES
     if (done_just_triggered){
       dumpSerial();
